@@ -24,6 +24,21 @@ The system consists of two main components:
 
 ## Local Development Setup
 
+### Environment Variables
+
+Set the following environment variables for local development:
+
+```bash
+# AWS/LocalStack Configuration
+export AWS_REGION=us-east-1
+export AWS_ACCESS_KEY_ID=test
+export AWS_SECRET_ACCESS_KEY=test
+export AWS_ENDPOINT_URL=http://localhost:4566
+
+```
+
+### Starting Services
+
 1. **Clone the repository**
    ```bash
    git clone https://github.com/yourusername/mini-walmart.git
@@ -32,7 +47,12 @@ The system consists of two main components:
 
 2. **Start LocalStack**
    ```bash
+   # Start LocalStack and UI
    docker-compose up -d
+
+   # Verify LocalStack is running
+   aws --endpoint-url=http://localhost:4566 sns list-topics
+
    ```
 
 3. **Run Orders Service**
