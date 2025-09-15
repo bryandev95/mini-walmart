@@ -106,9 +106,30 @@ npm test
 ## Infrastructure
 
 The project uses LocalStack to emulate AWS services locally:
-- SNS Topic for order events
-- SQS Queue subscribed to the SNS topic
-- (Optional) Terraform configurations in `/infra`
+
+### AWS Resources
+- SNS Topic (`orders-topic`) for order events
+- SQS Queue (`notifications-queue`) subscribed to the SNS topic
+- Dead Letter Queue (`notifications-dlq`) for failed message handling
+
+### Local Setup
+
+1. Start LocalStack:
+   ```bash
+   docker-compose up -d
+   ```
+
+2. Set up AWS resources:
+   ```bash
+   # Run the setup script
+   ./scripts/setup-local-aws.sh
+
+   # Verify setup
+   aws --endpoint-url=http://localhost:4566 sns list-topics
+   aws --endpoint-url=http://localhost:4566 sqs list-queues
+   ```
+
+The setup script will create all necessary resources and save the ARNs to `.env.local` for application use.
 
 ## Contributing
 
