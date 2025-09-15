@@ -2,6 +2,7 @@ package sns
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -10,8 +11,27 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sns"
 )
 
+// OrderEvent represents the SNS message format
+type OrderEvent struct {
+	EventType  string      `json:"eventType"`
+	OrderID    string      `json:"orderId"`
+	CustomerID string      `json:"customerId"`
+	Items      []OrderItem `json:"items"`
+}
+
+type OrderItem struct {
+	ProductID string  `json:"productId"`
+	Quantity  int     `json:"quantity"`
+	Price     float64 `json:"price"`
+}
+
+// SNSPublisher interface for mocking in tests
+type SNSPublisher interface {
+	Publish(ctx context.Context, params *sns.PublishInput, optFns ...func(*sns.Options)) (*sns.PublishOutput, error)
+}
+
 type Publisher struct {
-	client   *sns.Client
+	client   SNSPublisher
 	topicARN string
 }
 
@@ -48,13 +68,22 @@ func NewPublisher() (*Publisher, error) {
 	}, nil
 }
 
-func (p *Publisher) PublishOrderCreated(ctx context.Context, orderJSON string) error {
+func (p *Publisher) PublishOrderCreated(ctx context.Context, order OrderEvent) error {
+	// Set the event type
+	order.EventType = "OrderCreated"
+
+	// Convert to JSON
+	orderJSON, err := json.Marshal(order)
+	if err != nil {
+		return fmt.Errorf("failed to marshal order event: %v", err)
+	}
+
 	input := &sns.PublishInput{
-		Message:  aws.String(orderJSON),
+		Message:  aws.String(string(orderJSON)),
 		TopicArn: aws.String(p.topicARN),
 	}
 
-	_, err := p.client.Publish(ctx, input)
+	_, err = p.client.Publish(ctx, input)
 	if err != nil {
 		return fmt.Errorf("failed to publish message: %v", err)
 	}

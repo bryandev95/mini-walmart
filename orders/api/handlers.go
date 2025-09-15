@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"mini-walmart/orders/internal/sns"
@@ -38,15 +37,24 @@ func (h *Handler) CreateOrder(c *gin.Context) {
 		return
 	}
 
-	// Convert order to JSON for publishing
-	orderJSON, err := json.Marshal(order)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process order"})
-		return
+	// Create SNS event from order
+	event := sns.OrderEvent{
+		OrderID:    order.OrderID,
+		CustomerID: order.CustomerID,
+		Items:      make([]sns.OrderItem, len(order.Items)),
+	}
+
+	// Copy items to event
+	for i, item := range order.Items {
+		event.Items[i] = sns.OrderItem{
+			ProductID: item.ProductID,
+			Quantity:  item.Quantity,
+			Price:     item.Price,
+		}
 	}
 
 	// Publish to SNS
-	if err := h.publisher.PublishOrderCreated(c.Request.Context(), string(orderJSON)); err != nil {
+	if err := h.publisher.PublishOrderCreated(c.Request.Context(), event); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process order"})
 		return
 	}
