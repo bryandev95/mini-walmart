@@ -8,6 +8,12 @@ export AWS_ENDPOINT="--endpoint-url=http://localhost:4566"
 
 echo "Setting up AWS infrastructure in LocalStack..."
 
+# Delete existing resources
+echo "Cleaning up existing resources..."
+aws $AWS_ENDPOINT sqs delete-queue --queue-url "http://localhost:4566/000000000000/notifications-queue" 2>/dev/null || true
+aws $AWS_ENDPOINT sqs delete-queue --queue-url "http://localhost:4566/000000000000/notifications-dlq" 2>/dev/null || true
+sleep 2  # Wait for queues to be deleted
+
 # Create SNS topic
 echo "Creating SNS topic: orders-topic"
 TOPIC_ARN=$(aws $AWS_ENDPOINT sns create-topic --name orders-topic --output json | jq -r '.TopicArn')
@@ -15,18 +21,27 @@ echo "Topic ARN: $TOPIC_ARN"
 
 # Create DLQ for failed messages
 echo "Creating DLQ: notifications-dlq"
-DLQ_URL=$(aws $AWS_ENDPOINT sqs create-queue --queue-name notifications-dlq --output json | jq -r '.QueueUrl')
+DLQ_URL=$(aws $AWS_ENDPOINT sqs create-queue \
+    --queue-name notifications-dlq \
+    --attributes "{
+        \"VisibilityTimeout\": \"5\",
+        \"MessageRetentionPeriod\": \"345600\"
+    }" \
+    --output json | jq -r '.QueueUrl')
 DLQ_ARN=$(aws $AWS_ENDPOINT sqs get-queue-attributes --queue-url "$DLQ_URL" --attribute-names QueueArn --output json | jq -r '.Attributes.QueueArn')
 echo "DLQ URL: $DLQ_URL"
 echo "DLQ ARN: $DLQ_ARN"
 
 # Create main SQS queue with redrive policy
 echo "Creating main queue: notifications-queue"
-aws $AWS_ENDPOINT sqs create-queue \
+QUEUE_URL=$(aws $AWS_ENDPOINT sqs create-queue \
     --queue-name notifications-queue \
-    --attributes "{\"RedrivePolicy\":\"{\\\"deadLetterTargetArn\\\":\\\"$DLQ_ARN\\\",\\\"maxReceiveCount\\\":3}\"}"
-
-QUEUE_URL=$(aws $AWS_ENDPOINT sqs get-queue-url --queue-name notifications-queue --output json | jq -r '.QueueUrl')
+    --attributes "{
+        \"VisibilityTimeout\": \"5\",
+        \"MessageRetentionPeriod\": \"345600\",
+        \"RedrivePolicy\": \"{\\\"deadLetterTargetArn\\\":\\\"$DLQ_ARN\\\",\\\"maxReceiveCount\\\":1}\"
+    }" \
+    --output json | jq -r '.QueueUrl')
 QUEUE_ARN=$(aws $AWS_ENDPOINT sqs get-queue-attributes --queue-url "$QUEUE_URL" --attribute-names QueueArn --output json | jq -r '.Attributes.QueueArn')
 echo "Queue URL: $QUEUE_URL"
 echo "Queue ARN: $QUEUE_ARN"
