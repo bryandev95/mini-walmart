@@ -25,7 +25,8 @@ DLQ_URL=$(aws $AWS_ENDPOINT sqs create-queue \
     --queue-name notifications-dlq \
     --attributes "{
         \"VisibilityTimeout\": \"5\",
-        \"MessageRetentionPeriod\": \"345600\"
+        \"MessageRetentionPeriod\": \"345600\",
+        \"ReceiveMessageWaitTimeSeconds\": \"20\"
     }" \
     --output json | jq -r '.QueueUrl')
 DLQ_ARN=$(aws $AWS_ENDPOINT sqs get-queue-attributes --queue-url "$DLQ_URL" --attribute-names QueueArn --output json | jq -r '.Attributes.QueueArn')
@@ -39,6 +40,7 @@ QUEUE_URL=$(aws $AWS_ENDPOINT sqs create-queue \
     --attributes "{
         \"VisibilityTimeout\": \"5\",
         \"MessageRetentionPeriod\": \"345600\",
+        \"ReceiveMessageWaitTimeSeconds\": \"20\",
         \"RedrivePolicy\": \"{\\\"deadLetterTargetArn\\\":\\\"$DLQ_ARN\\\",\\\"maxReceiveCount\\\":1}\"
     }" \
     --output json | jq -r '.QueueUrl')
