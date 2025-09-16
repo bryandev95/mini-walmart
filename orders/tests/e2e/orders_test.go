@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"mini-walmart/orders/api"
+	"mini-walmart/orders/internal/sns"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -13,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -28,21 +32,38 @@ type Order struct {
 	Items      []OrderItem `json:"items"`
 }
 
+func setupTestServer() (*gin.Engine, error) {
+	// Create SNS publisher
+	publisher, err := sns.NewPublisher()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SNS publisher: %v", err)
+	}
+
+	// Create handler
+	handler := api.NewHandler(publisher)
+
+	// Create router
+	router := gin.Default()
+	router.POST("/orders", handler.CreateOrder)
+
+	return router, nil
+}
+
 func setupSQSClient(t *testing.T) *sqs.Client {
 	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
 		return aws.Endpoint{
-			URL:           "http://localhost:4566",
+			URL:           os.Getenv("AWS_ENDPOINT_URL"),
 			SigningRegion: region,
 		}, nil
 	})
 
 	cfg, err := config.LoadDefaultConfig(context.Background(),
-		config.WithRegion("us-east-1"),
+		config.WithRegion(os.Getenv("AWS_DEFAULT_REGION")),
 		config.WithEndpointResolverWithOptions(customResolver),
 		config.WithCredentialsProvider(aws.CredentialsProviderFunc(func(ctx context.Context) (aws.Credentials, error) {
 			return aws.Credentials{
-				AccessKeyID:     "test",
-				SecretAccessKey: "test",
+				AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
+				SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
 			}, nil
 		})),
 	)
@@ -59,6 +80,16 @@ func TestOrderCreationE2E(t *testing.T) {
 	if queueURL == "" {
 		t.Fatal("SQS_QUEUE_URL environment variable is required")
 	}
+
+	// Set up test server
+	router, err := setupTestServer()
+	if err != nil {
+		t.Fatalf("Failed to set up test server: %v", err)
+	}
+
+	// Create test server
+	ts := httptest.NewServer(router)
+	defer ts.Close()
 
 	// Create test order
 	order := Order{
@@ -80,11 +111,7 @@ func TestOrderCreationE2E(t *testing.T) {
 	}
 
 	// Send order to API
-	resp, err := http.Post(
-		"http://localhost:8080/orders",
-		"application/json",
-		bytes.NewBuffer(orderJSON),
-	)
+	resp, err := http.Post(ts.URL+"/orders", "application/json", bytes.NewBuffer(orderJSON))
 	if err != nil {
 		t.Fatalf("Failed to send order: %v", err)
 	}
