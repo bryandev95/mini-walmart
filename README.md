@@ -4,174 +4,67 @@
 
 A microservices-based order processing system that demonstrates event-driven architecture using AWS services (SNS/SQS) and LocalStack for local development.
 
-## CI/CD Pipeline
-
-The project uses GitHub Actions for continuous integration and deployment:
-
-- **Automated Tests**: Unit and E2E tests run on every push and pull request
-- **Multiple Environments**: Tests run against Go 1.21 and Node.js 18
-- **Linting**: Code quality checks with golangci-lint and ESLint
-- **Caching**: Optimized builds with dependency caching
-- **LocalStack Integration**: E2E tests run against LocalStack in CI
-
 ## Architecture
+
+![Architecture Diagram](docs/architecture.png)
 
 The system consists of two main components:
 
 1. **Orders Service (Go/Gin)**
    - RESTful API for order creation
-   - Publishes OrderCreated events to SNS topic
+   - Publishes `OrderCreated` events to SNS topic
+   - Built with Go 1.21 and Gin framework
 
 2. **Notifications Service (Node.js)**
    - Consumes messages from SQS queue
    - Processes order notifications (simulated email sending)
+   - Includes DLQ handling for failed messages
+   - Built with Node.js 18
 
 ## Prerequisites
 
 - Go 1.21+
 - Node.js 18+
 - Docker and Docker Compose
-- LocalStack (via Docker Compose)
 - AWS CLI (for local testing)
+- jq (for infrastructure scripts)
 
-## Local Development Setup
+## Quick Start
 
-### Environment Variables
-
-Set the following environment variables for local development:
-
-```bash
-# AWS/LocalStack Configuration
-export AWS_REGION=us-east-1
-export AWS_ACCESS_KEY_ID=test
-export AWS_SECRET_ACCESS_KEY=test
-export AWS_ENDPOINT_URL=http://localhost:4566
-
-```
-
-### Starting Services
-
-1. **Clone the repository**
+1. **Clone and Setup**
    ```bash
+   # Clone repository
    git clone https://github.com/yourusername/mini-walmart.git
    cd mini-walmart
-   ```
 
-2. **Start LocalStack**
-   ```bash
-   # Start LocalStack and UI
+   # Start LocalStack
    docker-compose up -d
 
-   # Verify LocalStack is running
-   aws --endpoint-url=http://localhost:4566 sns list-topics
-
+   # Set up AWS infrastructure
+   ./scripts/setup-local-aws.sh
    ```
 
-3. **Run Orders Service**
+2. **Start Services**
    ```bash
+   # Terminal 1: Start Orders Service
+   source .env.local
    cd orders
-   go mod download
    go run cmd/main.go
-   ```
 
-4. **Run Notifications Service**
-   ```bash
+   # Terminal 2: Start Notifications Worker
+   source .env.local
    cd notifications
    npm install
    npm start
    ```
 
-## API Endpoints
-
-### Orders Service
-- `POST /api/orders` - Create a new order
-  ```json
-  {
-    "orderId": "string",
-    "customerId": "string",
-    "items": [
-      {
-        "productId": "string",
-        "quantity": number,
-        "price": number
-      }
-    ]
-  }
-  ```
-
-## Testing
-
-### Automated Tests
-
-The project includes both unit tests and end-to-end (E2E) tests.
-
-#### Run All Tests
-```bash
-# Make sure LocalStack is running
-docker-compose up -d
-
-# Run all E2E tests
-./scripts/run-e2e-tests.sh
-```
-
-#### Unit Tests
-
-#### Orders Service
-```bash
-cd orders
-go test ./...
-```
-
-#### Notifications Service
-```bash
-cd notifications
-npm test
-```
-
-### End-to-End Testing
-
-Follow these steps to test the complete order flow locally:
-
-1. **Start LocalStack**
+3. **Test the Flow**
    ```bash
-   # Start LocalStack
-   docker-compose up -d
-
-   # Set up AWS resources
-   ./scripts/setup-local-aws.sh
-
-   # Verify resources
-   aws --endpoint-url=http://localhost:4566 sns list-topics
-   aws --endpoint-url=http://localhost:4566 sqs list-queues
-   ```
-
-2. **Start Orders Service**
-   ```bash
-   # Load environment variables
-   source .env.local
-
-   # Start service
-   cd orders
-   go run cmd/main.go
-   ```
-   You should see: `Listening and serving HTTP on :8080`
-
-3. **Start Notifications Worker**
-   ```bash
-   # In another terminal
-   source .env.local
-   cd notifications
-   npm start
-   ```
-   You should see: `🚀 Starting notifications worker...`
-
-4. **Create Test Order**
-   ```bash
-   # In another terminal
+   # Create a test order
    curl -X POST http://localhost:8080/orders \
      -H "Content-Type: application/json" \
      -d '{
-       "orderId": "ord123",
+       "orderId": "test123",
        "customerId": "cust456",
        "items": [
          {
@@ -183,122 +76,189 @@ Follow these steps to test the complete order flow locally:
      }'
    ```
 
-5. **Verify Results**
+## Environment Variables
 
-   a. Orders Service should return 201 status with the order JSON
-   
-   b. Notifications Worker should log:
-   ```
-   📧 Sending fake email for order: {
-     eventType: 'OrderCreated',
-     orderId: 'ord123',
-     customerId: 'cust456',
-     ...
-   }
-   ✅ Message processed and deleted
-   ```
+All environment variables are automatically set up in `.env.local` by the setup script.
 
-   c. Verify message in SQS (optional):
+### Orders Service
+- `AWS_REGION`: AWS region (default: us-east-1)
+- `AWS_ENDPOINT_URL`: LocalStack endpoint
+- `SNS_TOPIC_ARN`: ARN of the SNS topic
+- `AWS_ACCESS_KEY_ID`: AWS access key (test for LocalStack)
+- `AWS_SECRET_ACCESS_KEY`: AWS secret key (test for LocalStack)
+
+### Notifications Service
+- `AWS_REGION`: AWS region (default: us-east-1)
+- `AWS_ENDPOINT_URL`: LocalStack endpoint
+- `SQS_QUEUE_URL`: URL of the main SQS queue
+- `SQS_DLQ_URL`: URL of the Dead Letter Queue
+- `AWS_ACCESS_KEY_ID`: AWS access key (test for LocalStack)
+- `AWS_SECRET_ACCESS_KEY`: AWS secret key (test for LocalStack)
+
+## Development
+
+### Code Structure
+```
+mini-walmart/
+├─ orders/                # Go service
+│  ├─ cmd/main.go        # Entry point
+│  ├─ api/handlers.go    # HTTP handlers
+│  └─ internal/sns/      # SNS publisher
+├─ notifications/        # Node.js service
+│  ├─ index.js          # Worker entry point
+│  └─ tests/            # Test files
+└─ scripts/             # Infrastructure scripts
+```
+
+### Running Tests
+
+1. **Unit Tests**
    ```bash
-   # Before the worker processes it
-   aws --endpoint-url=http://localhost:4566 sqs receive-message \
-     --queue-url $SQS_QUEUE_URL
+   # Go tests
+   cd orders
+   go test ./...
+
+   # Node.js tests
+   cd notifications
+   npm test
    ```
 
-### Troubleshooting
+2. **E2E Tests**
+   ```bash
+   # Ensure LocalStack is running
+   docker-compose up -d
 
-1. **LocalStack Issues**
-   - Ensure Docker is running
-   - Try restarting LocalStack: `docker-compose restart`
-   - Run setup script again: `./scripts/setup-local-aws.sh`
+   # Run all E2E tests
+   ./scripts/run-e2e-tests.sh
+   ```
+
+3. **Manual Testing**
+   ```bash
+   # Test failing message flow
+   curl -X POST http://localhost:8080/orders \
+     -H "Content-Type: application/json" \
+     -d '{
+       "orderId": "fail-me",
+       "customerId": "test",
+       "items": [{"productId": "test", "quantity": 1, "price": 10}]
+     }'
+
+   # Check DLQ messages
+   curl http://localhost:3000/admin/dlq
+
+   # Retry DLQ messages
+   curl -X POST http://localhost:3000/admin/retry-dlq
+   ```
+
+## Monitoring and Logs
+
+### LocalStack Logs
+```bash
+# View LocalStack logs
+docker logs -f mini-walmart-localstack
+
+# View SNS topics
+aws --endpoint-url=http://localhost:4566 sns list-topics
+
+# View SQS queues
+aws --endpoint-url=http://localhost:4566 sqs list-queues
+
+# View messages in DLQ
+aws --endpoint-url=http://localhost:4566 sqs receive-message \
+  --queue-url $SQS_DLQ_URL
+```
+
+### Application Logs
+
+1. **Orders Service**
+   - Logs to stdout/stderr
+   - Debug logs prefixed with [GIN]
+   - Error logs for SNS publishing failures
+
+2. **Notifications Service**
+   - Logs to stdout/stderr
+   - Worker logs prefixed with 📬
+   - Email notifications prefixed with 📧
+   - Error logs prefixed with ❌
+
+## Troubleshooting
+
+### Common Issues
+
+1. **LocalStack Connection Issues**
+   ```bash
+   # Check LocalStack health
+   curl http://localhost:4566/_localstack/health
+
+   # Restart LocalStack
+   docker-compose restart
+
+   # Recreate infrastructure
+   ./scripts/setup-local-aws.sh
+   ```
 
 2. **Orders Service Issues**
    - Check SNS_TOPIC_ARN is set correctly
    - Verify AWS_ENDPOINT_URL points to LocalStack
    - Check logs for any publishing errors
+   ```bash
+   # Verify SNS topic
+   aws --endpoint-url=http://localhost:4566 sns list-topics
+   ```
 
-3. **Notifications Worker Issues**
+3. **Notifications Service Issues**
    - Ensure SQS_QUEUE_URL is correct
    - Check AWS credentials are set
    - Verify connection to LocalStack
-
-## Infrastructure
-
-The project uses LocalStack to emulate AWS services locally:
-
-### AWS Resources
-- SNS Topic (`orders-topic`) for order events
-- SQS Queue (`notifications-queue`) subscribed to the SNS topic
-- Dead Letter Queue (`notifications-dlq`) for failed message handling
-
-### Local Setup
-
-1. Start LocalStack:
    ```bash
-   docker-compose up -d
+   # Check queue exists
+   aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
+     --queue-url $SQS_QUEUE_URL \
+     --attribute-names All
    ```
 
-2. Set up AWS resources:
+4. **Message Flow Issues**
+   - Check SNS subscription exists
    ```bash
-   # Run the setup script
+   aws --endpoint-url=http://localhost:4566 sns list-subscriptions
+   ```
+   - Verify message format
+   ```bash
+   # Check messages in queue
+   aws --endpoint-url=http://localhost:4566 sqs receive-message \
+     --queue-url $SQS_QUEUE_URL
+   ```
+
+### Verification Steps
+
+1. **Infrastructure**
+   ```bash
+   # Check all components
    ./scripts/setup-local-aws.sh
-
-   # Verify setup
-   aws --endpoint-url=http://localhost:4566 sns list-topics
-   aws --endpoint-url=http://localhost:4566 sqs list-queues
    ```
 
-The setup script will create all necessary resources and save the ARNs to `.env.local` for application use.
+2. **Orders Service**
+   ```bash
+   # Create order
+   curl -X POST http://localhost:8080/orders \
+     -H "Content-Type: application/json" \
+     -d '{"orderId":"test","customerId":"test","items":[{"productId":"test","quantity":1,"price":10}]}'
+   ```
+
+3. **Notifications Service**
+   - Check worker logs for 📧 email notifications
+   - Verify DLQ handling with failing messages
 
 ## Contributing
 
-### Pull Request Process
-
 1. Create a feature branch from `main`
 2. Make your changes
-3. Ensure all tests pass locally:
+3. Ensure all tests pass:
    ```bash
-   # Go checks
-   cd orders
-   go vet ./...
-   go test ./...
-
-   # Node.js checks
-   cd notifications
-   npm run lint
-   npm test
+   # Run all checks
+   ./scripts/run-e2e-tests.sh
    ```
-4. Submit a pull request to `main`
-
-### CI/CD Pipeline
-
-The project uses GitHub Actions for continuous integration:
-
-- **Go Checks**:
-  - `go vet`: Static analysis
-  - `go test`: Unit tests
-  - Module dependency verification
-
-- **Node.js Checks**:
-  - ESLint: Code style and quality
-  - Mocha: Unit tests
-  - npm audit: Security checks
-
-- **Integration Tests**:
-  - LocalStack for AWS services
-  - End-to-end flow testing
-  - DLQ handling verification
-
-All checks must pass before a PR can be merged. The CI pipeline runs on:
-- Every push to `main`
-- Every pull request to `main`
-
-### Branch Protection
-
-The `main` branch is protected and requires:
-1. Passing CI checks
-2. Code review approval
-3. Up-to-date branch status
+4. Submit a pull request
 
 ## License
 
