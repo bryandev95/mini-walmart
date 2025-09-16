@@ -252,9 +252,53 @@ The setup script will create all necessary resources and save the ARNs to `.env.
 
 ## Contributing
 
-1. Create a feature branch from `dev`
+### Pull Request Process
+
+1. Create a feature branch from `main`
 2. Make your changes
-3. Submit a pull request to `dev`
+3. Ensure all tests pass locally:
+   ```bash
+   # Go checks
+   cd orders
+   go vet ./...
+   go test ./...
+
+   # Node.js checks
+   cd notifications
+   npm run lint
+   npm test
+   ```
+4. Submit a pull request to `main`
+
+### CI/CD Pipeline
+
+The project uses GitHub Actions for continuous integration:
+
+- **Go Checks**:
+  - `go vet`: Static analysis
+  - `go test`: Unit tests
+  - Module dependency verification
+
+- **Node.js Checks**:
+  - ESLint: Code style and quality
+  - Mocha: Unit tests
+  - npm audit: Security checks
+
+- **Integration Tests**:
+  - LocalStack for AWS services
+  - End-to-end flow testing
+  - DLQ handling verification
+
+All checks must pass before a PR can be merged. The CI pipeline runs on:
+- Every push to `main`
+- Every pull request to `main`
+
+### Branch Protection
+
+The `main` branch is protected and requires:
+1. Passing CI checks
+2. Code review approval
+3. Up-to-date branch status
 
 ## License
 

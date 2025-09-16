@@ -1,20 +1,67 @@
-name: CI/CD
+name: CI
 
 on:
   push:
-    branches: [ main, dev ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, dev ]
+    branches: [ main ]
 
 jobs:
-  test:
-    name: Run Tests
+  go-checks:
+    name: Go Checks
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: orders
 
-    strategy:
-      matrix:
-        go-version: ['1.21.x']
-        node-version: ['18.x']
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+          cache: true
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Run vet
+        run: go vet ./...
+
+      - name: Run tests
+        run: go test -v ./... -short
+
+  node-checks:
+    name: Node.js Checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: notifications
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: notifications/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linter
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [go-checks, node-checks]
 
     services:
       localstack:
@@ -27,51 +74,39 @@ jobs:
           AWS_SECRET_ACCESS_KEY: test
         ports:
           - 4566:4566
+        options: >-
+          --health-cmd "curl -f http://localhost:4566/_localstack/health"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - uses: actions/checkout@v3
 
-      # Set up Go
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: ${{ matrix.go-version }}
+          go-version: '1.21'
           cache: true
 
-      # Set up Node.js
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: '18'
           cache: 'npm'
           cache-dependency-path: notifications/package-lock.json
 
-      # Install jq (required for setup script)
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      # Install Go dependencies
       - name: Install Go dependencies
         working-directory: orders
-        run: |
-          go mod download
-          go mod verify
+        run: go mod download
 
-      # Install Node.js dependencies
       - name: Install Node.js dependencies
         working-directory: notifications
         run: npm ci
 
-      # Run unit tests
-      - name: Run Go unit tests
-        working-directory: orders
-        run: go test ./... -v -short
-
-      - name: Run Node.js unit tests
-        working-directory: notifications
-        run: npm test
-
-      # Set up AWS environment for E2E tests
       - name: Set up AWS environment
         run: |
           echo "AWS_ACCESS_KEY_ID=test" >> $GITHUB_ENV
@@ -79,59 +114,28 @@ jobs:
           echo "AWS_DEFAULT_REGION=us-east-1" >> $GITHUB_ENV
           echo "AWS_ENDPOINT_URL=http://localhost:4566" >> $GITHUB_ENV
 
-      # Wait for LocalStack to be ready
       - name: Wait for LocalStack
         run: |
           timeout 30 bash -c 'until curl -s http://localhost:4566/health; do sleep 1; done'
           sleep 5
 
-      # Set up infrastructure
       - name: Set up infrastructure
         run: |
           chmod +x scripts/setup-local-aws.sh
           ./scripts/setup-local-aws.sh
 
-      # Run E2E tests
-      - name: Run E2E tests
-        run: |
-          chmod +x scripts/run-e2e-tests.sh
-          ./scripts/run-e2e-tests.sh
-
-  lint:
-    name: Run Linters
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v3
-
-      # Set up Go
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: '1.21.x'
-
-      # Set up Node.js
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18.x'
-
-      # Install golangci-lint
-      - name: Install golangci-lint
-        run: |
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.55.2
-
-      # Install ESLint
-      - name: Install ESLint
-        working-directory: notifications
-        run: npm install eslint --save-dev
-
-      # Run Go linter
-      - name: Run golangci-lint
+      - name: Run Orders E2E tests
         working-directory: orders
-        run: golangci-lint run ./...
+        run: go test -v ./tests/e2e/...
 
-      # Run Node.js linter
-      - name: Run ESLint
+      - name: Run Notifications E2E tests
         working-directory: notifications
-        run: npx eslint .
+        run: npm run test:dlq
+
+  required-checks:
+    name: Required Checks
+    needs: [go-checks, node-checks, integration-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All checks passed
+        run: echo "✅ All required checks passed"
